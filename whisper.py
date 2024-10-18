@@ -15,8 +15,11 @@ import queue
 import logging
 from transformers import logging as transformers_logging
 import sounddevice as sd
+import sys
+import multiprocessing
 
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+if not hasattr(sys, "frozen"):
+    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
 warnings.filterwarnings("ignore")
 transformers_logging.set_verbosity_error()
@@ -120,8 +123,19 @@ class WhisperGUI:
         self.transcription_thread = None
 
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.processor = WhisperProcessor.from_pretrained("openai/whisper-base")
-        self.model = WhisperForConditionalGeneration.from_pretrained("openai/whisper-base").to(self.device)
+        
+        if getattr(sys, 'frozen', False):
+            base_path = os.path.join(os.environ.get('TEMP', os.path.expanduser('~')), 'whisper_model')
+        else:
+            base_path = os.path.dirname(os.path.abspath(__file__))
+        
+        model_path = os.path.join(base_path, "whisper-base")
+        
+        if not os.path.exists(model_path):
+            self.download_model(model_path)
+        
+        self.processor = WhisperProcessor.from_pretrained(model_path)
+        self.model = WhisperForConditionalGeneration.from_pretrained(model_path).to(self.device)
 
         logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
         self.logger = logging.getLogger(__name__)
@@ -453,7 +467,15 @@ class WhisperGUI:
         self.input_device_id = device_id
         print(f"Selected input device ID: {self.input_device_id}")
 
+    def download_model(self, model_path):
+        print("Downloading Whisper model. This may take a while...")
+        os.makedirs(model_path, exist_ok=True)
+        WhisperProcessor.from_pretrained("openai/whisper-base").save_pretrained(model_path)
+        WhisperForConditionalGeneration.from_pretrained("openai/whisper-base").save_pretrained(model_path)
+        print("Model downloaded successfully.")
+
 if __name__ == "__main__":
+    multiprocessing.freeze_support()  
     root = tk.Tk()
     gui = WhisperGUI(root)
     root.mainloop()
